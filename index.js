@@ -4,6 +4,7 @@ const app = express()
 require('dotenv').config()
 const port = process.env.port || 5300
 const { MongoClient, ServerApiVersion } = require('mongodb')
+const jwt = require('jsonwebtoken')
 
 // Bycrypt
 const bcrypt = require('bcrypt')
@@ -41,14 +42,33 @@ async function run () {
       res.send(result)
     })
 
+    // jwt
+    // app.post('/jwt', async (req, res) => {
+    //     const user = req.body;
+
+    // })
+
     //User Login api
     app.post('/login', async (req, res) => {
       const { email, pin } = req.body
+      const token = jwt.sign({email}, process.env.ACCESS_TOKEN_SECRET , { expiresIn: "1h"});
+
       const query = { email: email }
       const result = await usersCollection.findOne(query)
+
+      if (!result) {
+        return res.status(400).json({ message: 'Invalid Credentials' })
+      }
+
       const decodedPin = await bcrypt.compare(pin, result.pin)
       if (decodedPin) {
-        return res.send('Success')
+        return res
+        .cookie('token', token, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'none'
+        })
+        .send({ message: 'Success', email})
       } else {
         return res.send('Failed')
       }
