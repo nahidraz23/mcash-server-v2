@@ -5,6 +5,7 @@ require('dotenv').config()
 const port = process.env.port || 5300
 const { MongoClient, ServerApiVersion } = require('mongodb')
 const jwt = require('jsonwebtoken')
+const cookieParser = require('cookie-parser');
 
 // Bycrypt
 const bcrypt = require('bcrypt')
@@ -12,7 +13,13 @@ const saltRounds = 10
 
 // middlewares
 app.use(express.json())
-app.use(cors())
+app.use(cors({
+    origin: [
+        'http://localhost:5174'
+    ],
+    credentials: true
+}))
+app.use(cookieParser());
 
 // MongoDB
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.73lbb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`
@@ -42,12 +49,6 @@ async function run () {
       res.send(result)
     })
 
-    // jwt
-    // app.post('/jwt', async (req, res) => {
-    //     const user = req.body;
-
-    // })
-
     //User Login api
     app.post('/login', async (req, res) => {
       const { email, pin } = req.body
@@ -72,6 +73,12 @@ async function run () {
       } else {
         return res.send('Failed')
       }
+    })
+
+    // Log out api
+    app.post('/logout', async (req, res) => {
+        res.clearCookie('token');
+        res.status(200).json({message: 'Success'});
     })
 
     // Send a ping to confirm a successful connection
