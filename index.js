@@ -32,13 +32,26 @@ async function run () {
 
     const usersCollection = client.db('mcashDB').collection('users')
 
+    // User Register api
     app.post('/register', async (req, res) => {
-      const { name, pin, nid, email, mobile, role, balance } = req.body;
-      const hashPin = bcrypt.hashSync(pin, saltRounds);
-      const user = { name, pin: hashPin, nid, email, mobile, role, balance};
-      const result = await usersCollection.insertOne(user);
-      res.send(result);
-    //   console.log(user);
+      const { name, pin, nid, email, mobile, role, balance } = req.body
+      const hashPin = bcrypt.hashSync(pin, saltRounds)
+      const user = { name, pin: hashPin, nid, email, mobile, role, balance }
+      const result = await usersCollection.insertOne(user)
+      res.send(result)
+    })
+
+    //User Login api
+    app.post('/login', async (req, res) => {
+      const { email, pin } = req.body
+      const query = { email: email }
+      const result = await usersCollection.findOne(query)
+      const decodedPin = await bcrypt.compare(pin, result.pin)
+      if (decodedPin) {
+        return res.send('Success')
+      } else {
+        return res.send('Failed')
+      }
     })
 
     // Send a ping to confirm a successful connection
