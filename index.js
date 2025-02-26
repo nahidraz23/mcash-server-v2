@@ -5,21 +5,43 @@ require('dotenv').config()
 const port = process.env.port || 5300
 const { MongoClient, ServerApiVersion } = require('mongodb')
 const jwt = require('jsonwebtoken')
-const cookieParser = require('cookie-parser');
+const cookieParser = require('cookie-parser')
+const { v4: uuidv4 } = require('uuid')
 
 // Bycrypt
 const bcrypt = require('bcrypt')
 const saltRounds = 10
 
 // middlewares
+app.use(cookieParser())
 app.use(express.json())
-app.use(cors({
-    origin: [
-        'http://localhost:5174'
-    ],
+app.use(
+  cors({
+    origin: ['http://localhost:5173'],
     credentials: true
-}))
-app.use(cookieParser());
+  })
+)
+
+// Custom middlewares
+const logger = async (req, res, next) => {
+  // console.log('token', req.cookies)
+  next()
+}
+
+const verifyToken = async (req, res, next) => {
+  const token = req.cookies?.token
+  // console.log('Value of token in middleware:', token)
+  if (!token) {
+    return res.status(401).send({ message: 'Unauthorized' })
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
+    req.decoded = decoded
+    next()
+  } catch (err) {
+    return res.status(401).send({ message: 'Unauthorized' })
+  }
+}
 
 // MongoDB
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.73lbb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`
@@ -39,12 +61,62 @@ async function run () {
     // await client.connect();
 
     const usersCollection = client.db('mcashDB').collection('users')
+    const transactionsCollection = client
+      .db('mcashDB')
+      .collection('transactions')
+
+    // User get api
+    app.get('/user', verifyToken, async (req, res) => {
+      const email = req.decoded.email
+      const query = { email: email }
+      const result = await usersCollection.findOne(query)
+      res.send(result)
+    })
+
+    // Admin: Get all users and agents
+    app.get('/admin/users', verifyToken, async (req, res) => {
+      const admin = await usersCollection.findOne({ email: req.decoded.email })
+      if (!admin || admin.role !== 'admin') {
+        return res.status(403).send({ message: 'Access denied' })
+      }
+      const users = await usersCollection
+        .find({ role: { $in: ['user', 'agent'] } })
+        .toArray()
+      res.send({ users })
+    })
 
     // User Register api
     app.post('/register', async (req, res) => {
       const { name, pin, nid, email, mobile, role, balance } = req.body
+      // Check for duplicates (email, mobile, nid)
+      const existing = await usersCollection.findOne({
+        $or: [{ email }, { mobile }, { nid }]
+      })
+      if (existing) {
+        return res.status(400).send({ message: 'User already exists' })
+      }
       const hashPin = bcrypt.hashSync(pin, saltRounds)
-      const user = { name, pin: hashPin, nid, email, mobile, role, balance }
+      let userBalance = balance || 0
+      let approved = true
+      if (role === 'user') {
+        userBalance = 40 // Bonus for new users
+      } else if (role === 'agent') {
+        userBalance = 100000
+        approved = false // Agent must be approved by admin
+      }
+      const user = {
+        name,
+        pin: hashPin,
+        nid,
+        email,
+        mobile,
+        role,
+        balance: userBalance,
+        approved,
+        isBlocked: false,
+        lastLoggedInDevice: null,
+        createdAt: new Date()
+      }
       const result = await usersCollection.insertOne(user)
       res.send(result)
     })
@@ -52,7 +124,10 @@ async function run () {
     //User Login api
     app.post('/login', async (req, res) => {
       const { email, pin } = req.body
-      const token = jwt.sign({email}, process.env.ACCESS_TOKEN_SECRET , { expiresIn: "1h"});
+
+      const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: '1h'
+      })
 
       const query = { email: email }
       const result = await usersCollection.findOne(query)
@@ -64,21 +139,265 @@ async function run () {
       const decodedPin = await bcrypt.compare(pin, result.pin)
       if (decodedPin) {
         return res
-        .cookie('token', token, {
+          .cookie('token', token, {
             httpOnly: true,
-            secure: false,
-            sameSite: 'none'
-        })
-        .send({ message: 'Success', email})
+            secure: false
+            // sameSite: 'none'
+          })
+          .send({ message: 'Success', email })
       } else {
         return res.send('Failed')
       }
     })
 
+    // Protected: Get Balance API
+    app.get('/balance', verifyToken, async (req, res) => {
+      const email = req.decoded.email
+      const user = await usersCollection.findOne({ email })
+      if (!user) return res.status(404).send({ message: 'User not found' })
+      res.send({ balance: user.balance, income: user.income || 0 })
+    })
+
+    // Transaction History (Last 100 transactions)
+    app.get('/transaction/history', verifyToken, async (req, res) => {
+      const user = await usersCollection.findOne({ email: req.decoded.email })
+      if (!user) return res.status(404).send({ message: 'User not found' })
+      const transactions = await transactionsCollection
+        .find({
+          $or: [
+            { sender: user._id },
+            { receiver: user._id },
+            { agent: user._id }
+          ]
+        })
+        .sort({ date: -1 })
+        .limit(100)
+        .toArray()
+      res.send({ transactions })
+    })
+
+    // Transaction: Send Money (User)
+    app.post('/transaction/send-money', verifyToken, async (req, res) => {
+      const { recipientMobile, amount } = req.body
+      const amountInt = parseInt(amount)
+      // console.log(recipientMobile, amount);
+      const sender = await usersCollection.findOne({ email: req.decoded.email })
+      // console.log(sender);
+      if (!sender || sender.role !== 'user') {
+        return res.status(403).send({ message: 'Only users can send money' })
+      }
+      if (amountInt < 50) {
+        return res.status(400).send({ message: 'Minimum amount is 50 taka' })
+      }
+      const fee = amountInt > 100 ? 5 : 0
+      const totalDeduction = amountInt + fee
+      if (sender.balance < totalDeduction) {
+        return res.status(400).send({ message: 'Insufficient funds' })
+      }
+      const recipient = await usersCollection.findOne({
+        mobile: recipientMobile,
+        role: 'user'
+      })
+
+      if (!recipient) {
+        return res.status(400).send({ message: 'Recipient not found' })
+      }
+      await usersCollection.updateOne(
+        { _id: sender._id },
+        { $inc: { balance: -totalDeduction } }
+      )
+      await usersCollection.updateOne(
+        { _id: recipient._id },
+        { $inc: { balance: amountInt } }
+      )
+      // Add fee to Admin account if applicable
+      await usersCollection.updateOne(
+        { role: 'admin' },
+        { $inc: { balance: fee } }
+      )
+      const transaction = {
+        transactionId: uuidv4(),
+        type: 'sendMoney',
+        amountInt,
+        fee,
+        sender: sender._id,
+        receiver: recipient._id,
+        date: new Date(),
+        details: `Sent ${amountInt} taka to ${recipient.mobile}`
+      }
+      await transactionsCollection.insertOne(transaction)
+      res.send({ message: 'Successful', transaction })
+    })
+
+    // Transaction: Cash-In (via Agent)
+    app.post('/transaction/cash-in', verifyToken, async (req, res) => {
+      try {
+        // Expecting fields: userMobile (the target user's mobile), amount, and agentPin
+        const { userMobile, amount, agentPin } = req.body
+
+        let amountInt = parseInt(amount);
+
+        // Validate the transfer amount
+        if (amountInt <= 0) {
+          return res.status(400).send({ message: 'Invalid amount' })
+        }
+
+        // Retrieve the agent from the token (logged in as agent)
+        const agent = await usersCollection.findOne({
+          email: req.decoded.email
+        })
+        if (!agent || agent.role !== 'agent') {
+          return res
+            .status(403)
+            .send({ message: 'Only agents can perform cash in transactions' })
+        }
+
+        // Verify the agent's PIN
+        const agentPinMatch = await bcrypt.compare(agentPin, agent.pin)
+        if (!agentPinMatch) {
+          return res.status(400).send({ message: 'Invalid agent PIN' })
+        }
+
+        // Check if the agent has sufficient balance
+        if (agent.balance < amountInt) {
+          return res
+            .status(400)
+            .send({ message: 'Insufficient funds in agent account' })
+        }
+
+        // Find the user by their mobile number
+        const user = await usersCollection.findOne({
+          mobile: userMobile,
+          role: 'user'
+        })
+        if (!user) {
+          return res.status(400).send({ message: 'User not found' })
+        }
+
+        // Deduct the amount from the agent's balance
+        await usersCollection.updateOne(
+          { _id: agent._id },
+          { $inc: { balance: -amountInt } }
+        )
+
+        // Add the amount to the user's balance
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $inc: { balance: amountInt } }
+        )
+
+        // Record the transaction
+        const transaction = {
+          transactionId: uuidv4(),
+          type: 'cashIn',
+          amountInt,
+          agent: agent._id,
+          user: user._id,
+          date: new Date(),
+          details: `Agent ${agent.mobile} transferred ${amountInt} taka to user ${user.mobile}`
+        }
+
+        await transactionsCollection.insertOne(transaction)
+
+        res.send({ message: 'Cash-in successful', transaction })
+      } catch (error) {
+        console.error('Cash-in error:', error)
+        res
+          .status(500)
+          .send({ message: 'Server error during cash-in transaction' })
+      }
+    })
+
+    // Transaction: Cash-Out (User)
+    app.post('/transaction/cash-out', verifyToken, async (req, res) => {
+      const { amount, agentMobile, pin } = req.body
+      const user = await usersCollection.findOne({ email: req.decoded.email })
+      if (!user || user.role !== 'user') {
+        return res.status(403).send({ message: 'Only users can cash out' })
+      }
+      const pinMatch = await bcrypt.compare(pin, user.pin)
+      if (!pinMatch) {
+        return res.status(400).send({ message: 'Invalid PIN' })
+      }
+      const agent = await usersCollection.findOne({
+        mobile: agentMobile,
+        role: 'agent',
+        approved: true
+      })
+      if (!agent) {
+        return res
+          .status(400)
+          .send({ message: 'Agent not found or not approved' })
+      }
+      const fee = amount * 0.015
+      const totalDeduction = amount + fee
+      if (user.balance < totalDeduction) {
+        return res.status(400).send({ message: 'Insufficient funds' })
+      }
+      await usersCollection.updateOne(
+        { _id: user._id },
+        { $inc: { balance: -totalDeduction } }
+      )
+      const agentIncome = amount * 0.01
+      await usersCollection.updateOne(
+        { _id: agent._id },
+        { $inc: { balance: amount, income: agentIncome } }
+      )
+      const adminIncome = amount * 0.005
+      await usersCollection.updateOne(
+        { role: 'admin' },
+        { $inc: { balance: adminIncome } }
+      )
+      const transaction = {
+        transactionId: uuidv4(),
+        type: 'cashOut',
+        amount,
+        fee,
+        sender: user._id,
+        agent: agent._id,
+        date: new Date(),
+        details: `Cashed out ${amount} taka via agent ${agent.mobile}`
+      }
+      await transactionsCollection.insertOne(transaction)
+      res.send({ message: 'Cash-out successful', transaction })
+    })
+
+    // Admin: Get pending agent approvals
+    app.get('/admin/agent-approvals', verifyToken, async (req, res) => {
+      const admin = await usersCollection.findOne({ email: req.decoded.email })
+      if (!admin || admin.role !== 'admin') {
+        return res.status(403).send({ message: 'Access denied' })
+      }
+      const agents = await usersCollection
+        .find({ role: 'agent', approved: false })
+        .toArray()
+      res.send({ agents })
+    })
+
+    // Admin: Approve or Reject an agent
+    app.put('/admin/agent-approve/:email', verifyToken, async (req, res) => {
+      const admin = await usersCollection.findOne({ email: req.decoded.email })
+      if (!admin || admin.role !== 'admin') {
+        return res.status(403).send({ message: 'Access denied' })
+      }
+      const agentEmail = req.params.email
+      const { approve } = req.body // true or false
+      if (approve) {
+        await usersCollection.updateOne(
+          { email: agentEmail },
+          { $set: { approved: true } }
+        )
+        res.send({ message: 'Agent approved' })
+      } else {
+        await usersCollection.deleteOne({ email: agentEmail })
+        res.send({ message: 'Agent rejected and removed' })
+      }
+    })
+
     // Log out api
     app.post('/logout', async (req, res) => {
-        res.clearCookie('token');
-        res.status(200).json({message: 'Success'});
+      res.clearCookie('token')
+      res.status(200).json({ message: 'Success' })
     })
 
     // Send a ping to confirm a successful connection
