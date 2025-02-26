@@ -176,11 +176,19 @@ async function run () {
       res.send({ transactions })
     })
 
+    // Admin: All Transaction History
+    app.get('/admin/transactionhistory', verifyToken, async (req, res) => {
+      const user = await usersCollection.findOne({ email: req.decoded.email })
+      if (!user) return res.status(404).send({ message: 'User not found' })
+      const transactions = await transactionsCollection.find().toArray()
+      console.log(transactions)
+      res.send({ transactions })
+    })
+    
     // Transaction: Send Money (User)
     app.post('/transaction/send-money', verifyToken, async (req, res) => {
       const { recipientMobile, amount } = req.body
       const amountInt = parseInt(amount)
-      // console.log(recipientMobile, amount);
       const sender = await usersCollection.findOne({ email: req.decoded.email })
       // console.log(sender);
       if (!sender || sender.role !== 'user') {
@@ -235,7 +243,7 @@ async function run () {
         // Expecting fields: userMobile (the target user's mobile), amount, and agentPin
         const { userMobile, amount, agentPin } = req.body
 
-        let amountInt = parseInt(amount);
+        let amountInt = parseInt(amount)
 
         // Validate the transfer amount
         if (amountInt <= 0) {
