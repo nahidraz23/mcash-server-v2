@@ -64,6 +64,9 @@ async function run () {
     const transactionsCollection = client
       .db('mcashDB')
       .collection('transactions')
+    const rechargeRequestsCollection = client
+      .db('mcashDB')
+      .collection('rechargeRequests')
 
     // User get api
     app.get('/user', verifyToken, async (req, res) => {
@@ -184,7 +187,7 @@ async function run () {
       console.log(transactions)
       res.send({ transactions })
     })
-    
+
     // Transaction: Send Money (User)
     app.post('/transaction/send-money', verifyToken, async (req, res) => {
       const { recipientMobile, amount } = req.body
@@ -402,6 +405,99 @@ async function run () {
         res.send({ message: 'Agent rejected and removed' })
       }
     })
+
+    app.get('/admin/recharge-requests', verifyToken, async (req, res) => {
+      try {
+        // Verify the current user is an admin
+        const admin = await usersCollection.findOne({ email: req.decoded.email });
+        if (!admin || admin.role !== 'admin') {
+          return res.status(403).send({ message: 'Access denied' });
+        }
+        // Get only pending requests
+        const requests = await rechargeRequestsCollection.find({ status: 'pending' }).toArray();
+        res.send({ requests });
+      } catch (error) {
+        console.error('Error fetching recharge requests:', error);
+        res.status(500).send({ message: 'Internal server error' });
+      }
+    });
+
+    // Agent: Request Balance Recharge
+    app.post('/agent/request-money', verifyToken, async (req, res) => {
+      try {
+        const { amount } = req.body
+        const amountInt = parseFloat(amount)
+        if (!amountInt || amountInt <= 0) {
+          return res.status(400).send({ message: 'Invalid amount' })
+        }
+        // Find the agent making the request
+        const agent = await usersCollection.findOne({
+          email: req.decoded.email
+        })
+        if (!agent || agent.role !== 'agent') {
+          return res
+            .status(403)
+            .send({ message: 'Only agents can request a balance recharge' })
+        }
+
+        // Create a recharge request object
+        const rechargeRequest = {
+          requestId: uuidv4(),
+          agentId: agent._id,
+          amountInt,
+          status: 'pending', // admin will later review/approve this request
+          createdAt: new Date()
+        }
+
+        await rechargeRequestsCollection.insertOne(rechargeRequest)
+
+        res.status(200).send({ message: 'Request submitted', rechargeRequest })
+      } catch (error) {
+        console.error('Error processing agent request:', error)
+        res.status(500).send({ message: 'Internal server error' })
+      }
+    })
+
+    app.put('/admin/recharge-requests/:requestId', verifyToken, async (req, res) => {
+      try {
+        // Verify the current user is an admin
+        const admin = await usersCollection.findOne({ email: req.decoded.email });
+        if (!admin || admin.role !== 'admin') {
+          return res.status(403).send({ message: 'Access denied' });
+        }
+    
+        const { requestId } = req.params;
+        const { approve } = req.body; // expected to be a boolean value
+    
+        // Find the recharge request by its unique requestId
+        const request = await rechargeRequestsCollection.findOne({ requestId });
+        if (!request) {
+          return res.status(404).send({ message: 'Request not found' });
+        }
+        if (request.status !== 'pending') {
+          return res.status(400).send({ message: 'Request already processed' });
+        }
+    
+        // Update the request status based on admin's decision
+        const newStatus = approve ? 'approved' : 'rejected';
+        await rechargeRequestsCollection.updateOne(
+          { requestId },
+          { $set: { status: newStatus, processedAt: new Date() } }
+        );
+    
+        // If approved, update the agent's balance with the recharge amount
+        if (approve) {
+          await usersCollection.updateOne(
+            { _id: request.agentId },
+            { $inc: { balance: request.amountInt } }
+          );
+        }
+        res.send({ message: `Request ${newStatus}` });
+      } catch (error) {
+        console.error('Error processing recharge request:', error);
+        res.status(500).send({ message: 'Internal server error' });
+      }
+    });
 
     // Log out api
     app.post('/logout', async (req, res) => {
