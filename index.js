@@ -311,6 +311,7 @@ async function run () {
     // Transaction: Cash-Out (User)
     app.post('/transaction/cash-out', verifyToken, async (req, res) => {
       const { amount, agentMobile, pin } = req.body
+      const amountInt = parseInt(amount)
       const user = await usersCollection.findOne({ email: req.decoded.email })
       if (!user || user.role !== 'user') {
         return res.status(403).send({ message: 'Only users can cash out' })
@@ -329,8 +330,8 @@ async function run () {
           .status(400)
           .send({ message: 'Agent not found or not approved' })
       }
-      const fee = amount * 0.015
-      const totalDeduction = amount + fee
+      const fee = amountInt * 0.015
+      const totalDeduction = amountInt + fee
       if (user.balance < totalDeduction) {
         return res.status(400).send({ message: 'Insufficient funds' })
       }
@@ -341,9 +342,9 @@ async function run () {
       const agentIncome = amount * 0.01
       await usersCollection.updateOne(
         { _id: agent._id },
-        { $inc: { balance: amount, income: agentIncome } }
+        { $inc: { balance: amountInt, income: agentIncome } }
       )
-      const adminIncome = amount * 0.005
+      const adminIncome = amountInt * 0.005
       await usersCollection.updateOne(
         { role: 'admin' },
         { $inc: { balance: adminIncome } }
@@ -351,15 +352,15 @@ async function run () {
       const transaction = {
         transactionId: uuidv4(),
         type: 'cashOut',
-        amount,
+        amountInt,
         fee,
         sender: user._id,
         agent: agent._id,
         date: new Date(),
-        details: `Cashed out ${amount} taka via agent ${agent.mobile}`
+        details: `Cashed out ${amountInt} taka via agent ${agent.mobile}`
       }
       await transactionsCollection.insertOne(transaction)
-      res.send({ message: 'Cash-out successful', transaction })
+      res.send({ message: 'Successful', transaction })
     })
 
     // Admin: Get pending agent approvals
