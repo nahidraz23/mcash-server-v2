@@ -14,18 +14,12 @@ const saltRounds = 10
 
 // middlewares
 app.use(cookieParser())
-
-const allowedOrigins = ['https://web-mcash.vercel.app'];
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-}));
+app.use(cors(
+  {
+    origin: 'https://web-mcash.vercel.app',
+    credentials: true
+  }
+));
 app.options('*', cors());
 app.use(express.json())
 
