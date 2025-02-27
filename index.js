@@ -142,7 +142,7 @@ async function run () {
           .cookie('token', token, {
             httpOnly: true,
             secure: true,
-            // sameSite: 'lax'
+            sameSite: 'strict'
           })
           .send({ message: 'Success', email })
       } else {
