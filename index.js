@@ -17,7 +17,7 @@ app.use(cookieParser())
 app.use(express.json())
 app.use(
   cors({
-    origin: ['https://mcash-server.vercel.app'],
+    origin: ['https://web-mcash.vercel.app'],
     credentials: true
   })
 )
