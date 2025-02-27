@@ -23,11 +23,6 @@ app.use(
 )
 
 // Custom middlewares
-const logger = async (req, res, next) => {
-  // console.log('token', req.cookies)
-  next()
-}
-
 const verifyToken = async (req, res, next) => {
   const token = req.cookies?.token
   // console.log('Value of token in middleware:', token)
@@ -91,7 +86,7 @@ async function run () {
     // User Register api
     app.post('/register', async (req, res) => {
       const { name, pin, nid, email, mobile, role, balance } = req.body
-      // Check for duplicates (email, mobile, nid)
+  
       const existing = await usersCollection.findOne({
         $or: [{ email }, { mobile }, { nid }]
       })
@@ -102,10 +97,10 @@ async function run () {
       let userBalance = balance || 0
       let approved = true
       if (role === 'user') {
-        userBalance = 40 // Bonus for new users
+        userBalance = 40 
       } else if (role === 'agent') {
         userBalance = 100000
-        approved = false // Agent must be approved by admin
+        approved = false
       }
       const user = {
         name,
@@ -193,7 +188,6 @@ async function run () {
       const { recipientMobile, amount } = req.body
       const amountInt = parseInt(amount)
       const sender = await usersCollection.findOne({ email: req.decoded.email })
-      // console.log(sender);
       if (!sender || sender.role !== 'user') {
         return res.status(403).send({ message: 'Only users can send money' })
       }
@@ -243,17 +237,13 @@ async function run () {
     // Transaction: Cash-In (via Agent)
     app.post('/transaction/cash-in', verifyToken, async (req, res) => {
       try {
-        // Expecting fields: userMobile (the target user's mobile), amount, and agentPin
         const { userMobile, amount, agentPin } = req.body
 
         let amountInt = parseInt(amount)
-
-        // Validate the transfer amount
         if (amountInt <= 0) {
           return res.status(400).send({ message: 'Invalid amount' })
         }
 
-        // Retrieve the agent from the token (logged in as agent)
         const agent = await usersCollection.findOne({
           email: req.decoded.email
         })
@@ -263,20 +253,17 @@ async function run () {
             .send({ message: 'Only agents can perform cash in transactions' })
         }
 
-        // Verify the agent's PIN
         const agentPinMatch = await bcrypt.compare(agentPin, agent.pin)
         if (!agentPinMatch) {
           return res.status(400).send({ message: 'Invalid agent PIN' })
         }
 
-        // Check if the agent has sufficient balance
         if (agent.balance < amountInt) {
           return res
             .status(400)
             .send({ message: 'Insufficient funds in agent account' })
         }
 
-        // Find the user by their mobile number
         const user = await usersCollection.findOne({
           mobile: userMobile,
           role: 'user'
@@ -285,19 +272,16 @@ async function run () {
           return res.status(400).send({ message: 'User not found' })
         }
 
-        // Deduct the amount from the agent's balance
         await usersCollection.updateOne(
           { _id: agent._id },
           { $inc: { balance: -amountInt } }
         )
 
-        // Add the amount to the user's balance
         await usersCollection.updateOne(
           { _id: user._id },
           { $inc: { balance: amountInt } }
         )
 
-        // Record the transaction
         const transaction = {
           transactionId: uuidv4(),
           type: 'cashIn',
@@ -408,12 +392,11 @@ async function run () {
 
     app.get('/admin/recharge-requests', verifyToken, async (req, res) => {
       try {
-        // Verify the current user is an admin
         const admin = await usersCollection.findOne({ email: req.decoded.email });
         if (!admin || admin.role !== 'admin') {
           return res.status(403).send({ message: 'Access denied' });
         }
-        // Get only pending requests
+
         const requests = await rechargeRequestsCollection.find({ status: 'pending' }).toArray();
         res.send({ requests });
       } catch (error) {
@@ -430,7 +413,7 @@ async function run () {
         if (!amountInt || amountInt <= 0) {
           return res.status(400).send({ message: 'Invalid amount' })
         }
-        // Find the agent making the request
+
         const agent = await usersCollection.findOne({
           email: req.decoded.email
         })
@@ -440,12 +423,11 @@ async function run () {
             .send({ message: 'Only agents can request a balance recharge' })
         }
 
-        // Create a recharge request object
         const rechargeRequest = {
           requestId: uuidv4(),
           agentId: agent._id,
           amountInt,
-          status: 'pending', // admin will later review/approve this request
+          status: 'pending',
           createdAt: new Date()
         }
 
@@ -460,16 +442,14 @@ async function run () {
 
     app.put('/admin/recharge-requests/:requestId', verifyToken, async (req, res) => {
       try {
-        // Verify the current user is an admin
         const admin = await usersCollection.findOne({ email: req.decoded.email });
         if (!admin || admin.role !== 'admin') {
           return res.status(403).send({ message: 'Access denied' });
         }
     
         const { requestId } = req.params;
-        const { approve } = req.body; // expected to be a boolean value
+        const { approve } = req.body;
     
-        // Find the recharge request by its unique requestId
         const request = await rechargeRequestsCollection.findOne({ requestId });
         if (!request) {
           return res.status(404).send({ message: 'Request not found' });
@@ -478,14 +458,12 @@ async function run () {
           return res.status(400).send({ message: 'Request already processed' });
         }
     
-        // Update the request status based on admin's decision
         const newStatus = approve ? 'approved' : 'rejected';
         await rechargeRequestsCollection.updateOne(
           { requestId },
           { $set: { status: newStatus, processedAt: new Date() } }
         );
     
-        // If approved, update the agent's balance with the recharge amount
         if (approve) {
           await usersCollection.updateOne(
             { _id: request.agentId },
