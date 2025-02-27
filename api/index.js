@@ -26,18 +26,10 @@ app.use((req, res, next) => {
 app.use(cookieParser())
 app.use(cors(
   {
-    origin: 'https://web-mcash.vercel.app',
+    origin: ['https://web-mcash.vercel.app'],
     credentials: true
   }
 ));
-app.options('*', (req, res) => {
-  console.log('OPTIONS preflight hit');
-  res.setHeader('Access-Control-Allow-Origin', 'https://web-mcash.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
-});
 app.use(express.json())
 
 // Custom middlewares
