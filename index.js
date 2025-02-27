@@ -144,8 +144,8 @@ async function run () {
         return res
           .cookie('token', token, {
             httpOnly: true,
-            secure: true
-            // sameSite: 'none'
+            secure: true,
+            sameSite: 'none'
           })
           .send({ message: 'Success', email })
       } else {
