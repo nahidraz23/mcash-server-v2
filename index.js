@@ -17,7 +17,7 @@ app.use(express.json())
 app.use(cookieParser())
 app.use(cors(
   {
-    origin: ['https://web-mcash.vercel.app'],
+    origin: ['https://web-mcash.vercel.app', 'http://localhost:5173'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'], 
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
@@ -141,8 +141,8 @@ async function run () {
         return res
           .cookie('token', token, {
             httpOnly: true,
-            secure: true,
-            sameSite: 'strict'
+            secure: false,
+            // sameSite: 'strict'
           })
           .send({ message: 'Success', email })
       } else {
