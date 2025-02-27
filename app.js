@@ -4,7 +4,6 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
 const serverless = require("serverless-http");
-const router = express.Router();
 const app = express();
 
 // Global Middlewares
@@ -12,7 +11,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(
   cors({
-    origin: ['https://your-production-domain.com', 'http://localhost:5173'],
+    origin: ['https://web-mcash.vercel.app', 'http://localhost:5173'],
     credentials: true,
   })
 );
