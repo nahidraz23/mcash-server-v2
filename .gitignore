@@ -1,3 +1,5 @@
 node_modules
 .env
-.ver
+.vercel
+.netlify
+netlify.toml

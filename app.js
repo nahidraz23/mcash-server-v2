@@ -3,7 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
-
+const serverless = require("serverless-http");
+const router = express.Router();
 const app = express();
 
 // Global Middlewares
@@ -41,4 +42,8 @@ app.get('/', (req, res) => {
   res.send('mCash server is running');
 });
 
+// app.use("/.netlify/functions/app", router);
+// module.exports.handler = serverless(app);
+// Export the serverless handler
+module.exports.handler = serverless(app);
 module.exports = app;
