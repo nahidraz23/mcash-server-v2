@@ -14,7 +14,6 @@ const saltRounds = 10
 
 // middlewares
 app.use(cookieParser())
-app.use(express.json())
 
 const allowedOrigins = ['https://web-mcash.vercel.app'];
 app.use(cors({
@@ -28,6 +27,7 @@ app.use(cors({
   credentials: true,
 }));
 app.options('*', cors());
+app.use(express.json())
 
 // Custom middlewares
 const verifyToken = async (req, res, next) => {
