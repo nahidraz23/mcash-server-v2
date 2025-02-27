@@ -18,6 +18,8 @@ app.use(cookieParser())
 app.use(cors(
   {
     origin: ['https://web-mcash.vercel.app'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'], 
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
   }
 ));
