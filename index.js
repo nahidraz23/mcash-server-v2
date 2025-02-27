@@ -13,16 +13,7 @@ const bcrypt = require('bcrypt')
 const saltRounds = 10
 
 // middlewares
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'https://web-mcash.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.use(express.json())
 app.use(cookieParser())
 app.use(cors(
   {
@@ -30,7 +21,6 @@ app.use(cors(
     credentials: true
   }
 ));
-app.use(express.json())
 
 // Custom middlewares
 const verifyToken = async (req, res, next) => {
